@@ -1,99 +1,155 @@
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import {
-    collection,
-    onSnapshot,
-    addDoc,
-    serverTimestamp,
-    query,
-    orderBy,
-    getDocs,
+  collection,
+  onSnapshot,
+  addDoc,
+  serverTimestamp,
+  query,
+  orderBy,
+  deleteDoc,
+  doc,
+  getDoc
 } from "firebase/firestore";
 import { db } from "../firebase";
 
-export const listenToChannel = () =>(dispatch)=> {
-    dispatch(setLoading(true));
-    const q = query(collection(db, "channels"), orderBy("createdAt", "asc"))
-    return onSnapshot(q, (snapshot) => {
-        console.log("🔥 snapshot fired", snapshot.docs.length);
-        const channels = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-        }))
-        dispatch(setChannels(channels))
-        dispatch(setLoading(false));
-    })
-}
-export const addChannel = async ({ name, userId }) => {
-    try {
-        console.log("🔥 Writing channel to Firestore");
+/*
+|--------------------------------------------------------------------------
+| ASYNC THUNKS
+|--------------------------------------------------------------------------
+*/
 
-        await addDoc(collection(db, "channels"), {
-            name,
-            createdAt: serverTimestamp(),
-            createdBy: userId,
-        });
+/**
+ * Add New Channel
+ */
 
-        console.log("✅ Channel written successfully");
-    } catch (err) {
-        console.error("❌ Firestore write error:", err);
+export const deleteChannel = createAsyncThunk("channel/deleteChannel", async ({ channelId, userId }, thunkAPI) => {
+  
+
+  try {
+    const channelDoc = await getDoc(doc(db, "channels", channelId));
+    if (channelDoc.data().createdBy !== userId) {
+      return thunkAPI.rejectWithValue("You are not authorized to delete this channel");
     }
+    await deleteDoc(
+      doc(db,"channels",channelId)
+    )
+
+    
+  } catch (error) {
+    return thunkAPI.rejectWithValue(error.message)
+  }
+})
+export const addChannel = createAsyncThunk(
+  "channels/addChannel",
+  async ({ name, userId }, thunkAPI) => {
+    try {
+      const docRef = await addDoc(collection(db, "channels"), {
+        name,
+        createdAt: serverTimestamp(),
+        createdBy: userId,
+      });
+
+      return {
+        id: docRef.id,
+        name,
+        createdBy: userId,
+      };
+    } catch (error) {
+      return thunkAPI.rejectWithValue(error.message);
+    }
+  },
+);
+
+/**
+ * Realtime Listener
+ */
+export const listenToChannels = () => (dispatch) => {
+  dispatch(setLoading(true));
+
+  const q = query(collection(db, "channels"), orderBy("createdAt", "asc"));
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+     const channels = snapshot.docs.map((doc) => {
+       const data = doc.data();
+
+       return {
+         id: doc.id,
+         ...data,
+         createdAt: data.createdAt ? data.createdAt.toMillis() : null,
+       };
+     });
+
+      dispatch(setChannels(channels));
+      dispatch(setLoading(false));
+    },
+    (error) => {
+      dispatch(setError(error.message));
+      dispatch(setLoading(false));
+    },
+  );
+
+  return unsubscribe;
 };
 
-export const fetchChannels = createAsyncThunk("channel/fetchChannels", async (_, thunkAPI) => {
-    try {
-        const querySnapshot = await getDocs(collection(db, "channels"))
-        const channels = []
-        
-        querySnapshot.forEach((doc) => {
-            channels.push({
-                id: doc.id,
-                ...doc.data()
-            })
-        })
-        return channels
-    } catch (error) {
-        return thunkAPI.rejectWithValue(error.message)
-    }
-    
-})
+/*
+|--------------------------------------------------------------------------
+| SLICE
+|--------------------------------------------------------------------------
+*/
 
 const channelSlice = createSlice({
-    name: "channels",
-    initialState: {
-        list: [],
-        loading: false,
-        error: null,
-        activeChannel:null
+  name: "channels",
+  initialState: {
+    list: [],
+    loading: false,
+    error: null,
+    activeChannel: null,
+  },
+  reducers: {
+    setChannels: (state, action) => {
+      state.list = action.payload;
+    },
+    setLoading: (state, action) => {
+      state.loading = action.payload;
+    },
+    setError: (state, action) => {
+      state.error = action.payload;
+    },
+    setActiveChannel: (state, action) => {
+      state.activeChannel = action.payload;
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // ADD CHANNEL
+      .addCase(addChannel.pending, (state) => {
+        state.loading = true;
+      })
+      .addCase(addChannel.fulfilled, (state) => {
+        state.loading = false;
+      })
+      .addCase(addChannel.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      });
+    builder
+      .addCase(deleteChannel.pending, (state) => {
+      state.loading=true
+      })
+      .addCase(deleteChannel.fulfilled, (state) => {
+      state.loading=false
+      })
+      .addCase(deleteChannel.rejected, (state, action) => {
+        state.loading = false
+          state.error=action.payload
         
-    },
-    reducers: {
-        setChannels: (state,action) => {
-            state.list=action.payload
-        },
-        setLoading: (state, action) => {
-            state.loading = action.payload;
-        },
-        setActiveChannel: (state,action) => {
-            state.activeChannel=action.payload
-        }
-    },
-    extraReducers: (builder)=>{
-        builder
-            
+    })
+  },
+});
 
-            // FETCH CHANNELS
-            .addCase(fetchChannels.pending, (state) => {
-                state.loading = true;
-            })
-            .addCase(fetchChannels.fulfilled, (state, action) => {
-                state.loading = false;
-                state.list = action.payload;
-            })
-            .addCase(fetchChannels.rejected, (state, action) => {
-                state.loading = false;
-                state.error = action.payload;
-            });
-    }
-})
-export const { setChannels, setLoading,setActiveChannel } = channelSlice.actions;
+export const { setChannels, setLoading, setError, setActiveChannel } =
+  channelSlice.actions;
+
 export default channelSlice.reducer;

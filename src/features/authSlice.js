@@ -3,8 +3,13 @@ import { createAsyncThunk } from "@reduxjs/toolkit"
 import {
     signInWithEmailAndPassword, createUserWithEmailAndPassword,
     signOut,
+    updateProfile,
 } from "firebase/auth"
 import { auth } from "../firebase"
+
+import { setDoc, doc, serverTimestamp } from "firebase/firestore";
+import { db } from "../firebase";
+
     
 export const loginUser = createAsyncThunk("auth/loginUser", async ({email,password},thunkAPI) => {
     try {
@@ -21,25 +26,49 @@ export const loginUser = createAsyncThunk("auth/loginUser", async ({email,passwo
         return thunkAPI.rejectWithValue(error.message)
     }
 })
-export const signUpUser = createAsyncThunk("auth/signUp", async ({ email, password }, thunkAPI) => {
+export const signUpUser = createAsyncThunk("auth/signUp", async ({ username,email, password }, thunkAPI) => {
     try {
         const userCredential = await createUserWithEmailAndPassword(
             auth,
             email,
             password
         )
-  
+        await updateProfile(userCredential.user, {
+            displayName:username
+        })
+        await setDoc(doc(db, "users", userCredential.user.uid), {
+            uid: userCredential.user.uid,
+            username: username,
+            email: email,
+            isOnline: true,
+            lastSeen:serverTimestamp()
+            
+        })
         return {
             uid: userCredential.user.uid,
             email: userCredential.user.email,
+            username: username,
+            isOnline: true,
+            lastSeen: Date.now()
         }
     } catch (error) {
        return  thunkAPI.rejectWithValue(error.message)
     }
     
 })
-export const logoutUser = createAsyncThunk("auth/signOut", async () => {
-    await signOut(auth)
+export const logoutUser = createAsyncThunk("auth/signOut", async (_,thunkAPI) => {
+    try {
+        const { uid } = thunkAPI.getState().auth.user;
+        await signOut(auth)
+        await setDoc(doc(db, "users",uid), {
+            isOnline: false,
+            lastSeen: serverTimestamp()
+        }, { merge: true });
+        return 
+    } catch (error) {
+        return thunkAPI.rejectWithValue(error.message)
+    }
+    
 })
     
 

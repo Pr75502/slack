@@ -66,10 +66,6 @@ function MainApp() {
             <p className="text-slate-400 mt-2">Sign in or create an account to get started</p>
           </div>
           <Login />
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-800"></span></div>
-            <div className="relative flex justify-center text-xs uppercase"><span className="bg-slate-900 px-2 text-slate-500">Or</span></div>
-          </div>
           <SignUp />
         </div>
       </div>
